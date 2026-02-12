@@ -46,8 +46,8 @@ export default auth((req) => {
     return NextResponse.next()
   }
   
-  // Vérifier les routes publiques ou authentifiées
-  if (publicOrAuthRoutes.some(route => pathname.startsWith(route))) {
+  // Vérifier les routes publiques ou authentifiées (IMPORTANT: vérifier "/" en premier)
+  if (pathname === "/" || pathname.startsWith("/catalogue")) {
     return NextResponse.next()
   }
 

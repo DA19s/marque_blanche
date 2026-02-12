@@ -1,20 +1,26 @@
 # Guide de Déploiement sur Vercel
 
-## Variables d'environnement requises
+## ⚠️ IMPORTANT : Variables d'environnement OBLIGATOIRES
+
+**Si vous obtenez une erreur 404, c'est probablement parce que `AUTH_SECRET` n'est pas défini !**
 
 Dans les paramètres de votre projet Vercel, ajoutez ces variables d'environnement :
 
 ### Variables obligatoires
 
-1. **AUTH_SECRET**
+1. **AUTH_SECRET** ⚠️ OBLIGATOIRE
    - Description : Clé secrète pour NextAuth.js
-   - Comment générer : `openssl rand -base64 32` ou utilisez un générateur en ligne
+   - Comment générer : 
+     - En ligne : https://generate-secret.vercel.app/32
+     - En ligne de commande : `openssl rand -base64 32`
    - Exemple : `a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0`
+   - **IMPORTANT** : Sans cette variable, vous obtiendrez une erreur 404 !
 
-2. **AUTH_URL**
+2. **AUTH_URL** ⚠️ OBLIGATOIRE
    - Description : URL complète de votre application Vercel
    - Format : `https://votre-app.vercel.app`
-   - Exemple : `https://white-mark.vercel.app`
+   - Exemple : `https://marque-blanche.vercel.app`
+   - **IMPORTANT** : Utilisez l'URL exacte de votre déploiement Vercel
 
 3. **NEXT_PUBLIC_APP_URL** (optionnel mais recommandé)
    - Description : URL publique de l'application
