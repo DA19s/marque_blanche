@@ -1,0 +1,367 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTHENTICATION & USERS
+// ============================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN_PARTNER
+  COACH
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model User {
+  id            String      @id @default(cuid())
+  email         String      @unique
+  emailVerified DateTime?
+  name          String?
+  password      String?     // Hashed password
+  image         String?
+  role          UserRole    @default(USER)
+  status        UserStatus  @default(ACTIVE)
+  tenantId      String?     // null for SUPER_ADMIN, required for others
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Relations
+  tenant        Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  accounts      Account[]
+  sessions      Session[]
+  enrollments   Enrollment[]
+  quizAttempts  QuizAttempt[]
+  certificates  Certificate[]
+
+  @@index([email])
+  @@index([tenantId])
+  @@index([role])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================
+// MULTI-TENANT
+// ============================================
+
+enum TenantStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum PlanType {
+  FREE
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+model Tenant {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique // Pour sous-domaine ou URL
+  domain      String?      @unique // Domaine personnalisé (optionnel)
+  status      TenantStatus @default(ACTIVE)
+  planType    PlanType     @default(FREE)
+  
+  // Branding
+  logo        String?
+  primaryColor String?     @default("#3B82F6")
+  secondaryColor String?   @default("#10B981")
+  fontFamily  String?     @default("Inter")
+  
+  // Quotas
+  maxUsers    Int          @default(100)
+  maxStorage  Int          @default(1024) // MB
+  maxModules  Int          @default(50)
+  
+  // Usage tracking
+  currentUsers Int         @default(0)
+  currentStorage Int       @default(0) // MB
+  currentModules Int       @default(0)
+  
+  // Metadata
+  aboutText   String?      @db.Text
+  contactEmail String?
+  contactPhone String?
+  legalMentions String?    @db.Text
+  
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  users       User[]
+  programs    Program[]
+  modules     Module[]
+  analytics   TenantAnalytics[]
+
+  @@index([slug])
+  @@index([status])
+}
+
+// ============================================
+// CONTENT MANAGEMENT
+// ============================================
+
+model Program {
+  id          String   @id @default(cuid())
+  tenantId    String
+  title       String
+  description String?  @db.Text
+  image       String?
+  order       Int      @default(0)
+  published   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  modules     Module[]
+
+  @@index([tenantId])
+  @@index([published])
+}
+
+model Module {
+  id          String   @id @default(cuid())
+  tenantId    String
+  programId   String?
+  title       String
+  description String?  @db.Text
+  image       String?
+  level       String?  // débutant, intermédiaire, avancé
+  duration    Int?     // minutes
+  order       Int      @default(0)
+  published   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  program     Program? @relation(fields: [programId], references: [id], onDelete: SetNull)
+  lessons     Lesson[]
+  enrollments Enrollment[]
+  quiz        Quiz?
+
+  @@index([tenantId])
+  @@index([programId])
+  @@index([published])
+}
+
+model Lesson {
+  id          String   @id @default(cuid())
+  moduleId    String
+  title       String
+  description String?  @db.Text
+  videoUrl    String?
+  content     String?  @db.Text // Résumé écrit
+  order       Int      @default(0)
+  duration    Int?     // minutes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  module      Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
+  progress    LessonProgress[]
+
+  @@index([moduleId])
+}
+
+model Attachment {
+  id          String   @id @default(cuid())
+  lessonId    String
+  name        String
+  fileUrl     String
+  fileType    String   // pdf, image, etc.
+  fileSize    Int?     // bytes
+  createdAt   DateTime @default(now())
+
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId])
+}
+
+// ============================================
+// QUIZ & EVALUATION
+// ============================================
+
+model Quiz {
+  id          String   @id @default(cuid())
+  moduleId    String   @unique
+  title       String
+  description String?  @db.Text
+  passingScore Int     @default(70) // Pourcentage
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  module      Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  questions   Question[]
+  attempts    QuizAttempt[]
+}
+
+model Question {
+  id          String   @id @default(cuid())
+  quizId      String
+  question    String   @db.Text
+  type        String   @default("multiple_choice") // multiple_choice, true_false
+  order       Int      @default(0)
+  points      Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quiz        Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  answers     Answer[]
+
+  @@index([quizId])
+}
+
+model Answer {
+  id          String   @id @default(cuid())
+  questionId  String
+  text        String   @db.Text
+  isCorrect   Boolean  @default(false)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+model QuizAttempt {
+  id          String   @id @default(cuid())
+  userId      String
+  quizId      String
+  score       Int      // Pourcentage
+  passed      Boolean
+  answers     Json     // Réponses données
+  completedAt DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quiz        Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([quizId])
+}
+
+// ============================================
+// USER PROGRESS & ENROLLMENTS
+// ============================================
+
+model Enrollment {
+  id          String   @id @default(cuid())
+  userId      String
+  moduleId    String
+  accessType  String   @default("free") // free, premium, code, sponsored
+  code        String?  // Code d'accès si applicable
+  enrolledAt  DateTime @default(now())
+  completedAt DateTime?
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module      Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleId])
+  @@index([userId])
+  @@index([moduleId])
+}
+
+model LessonProgress {
+  id          String   @id @default(cuid())
+  userId      String
+  lessonId    String
+  completed   Boolean  @default(false)
+  progress    Int      @default(0) // Pourcentage 0-100
+  lastPosition Int?    // Position vidéo en secondes
+  completedAt DateTime?
+  updatedAt   DateTime @updatedAt
+
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+  @@index([lessonId])
+}
+
+model Certificate {
+  id          String   @id @default(cuid())
+  userId      String
+  moduleId    String
+  title       String
+  issuedAt    DateTime @default(now())
+  certificateUrl String? // URL du certificat PDF
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([moduleId])
+}
+
+// ============================================
+// ANALYTICS
+// ============================================
+
+model TenantAnalytics {
+  id          String   @id @default(cuid())
+  tenantId    String
+  date        DateTime @default(now())
+  activeUsers Int      @default(0)
+  newUsers    Int      @default(0)
+  completions Int      @default(0)
+  quizAttempts Int     @default(0)
+  avgScore    Float?
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([date])
+}
